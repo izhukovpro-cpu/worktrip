@@ -64,6 +64,18 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);b
 .trip .l a{color:var(--green-d);margin-right:14px;text-decoration:none;font-weight:600}
 .st{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:#e2e8f0;color:var(--navy);margin-left:6px;font-weight:500}
 .st.ok{background:#d1fae5;color:#065f46}.st.err{background:#fee2e2;color:#991b1b}
+.pay{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}
+.seg{display:flex;background:#f1f5f9;border-radius:10px;padding:3px;gap:3px}
+.seg button{flex:1;border:0;background:none;border-radius:8px;padding:8px 6px;font:inherit;font-size:14px;color:var(--muted);cursor:pointer}
+.seg button.on{background:#fff;color:var(--navy);font-weight:600;box-shadow:0 1px 2px rgba(15,23,42,.12)}
+.stmt{display:flex;align-items:center;gap:8px;margin-top:8px;border-radius:10px;padding:8px 10px;font-size:13px;line-height:1.35;background:#f8fafc;color:var(--muted)}
+.stmt .tx{flex:1;min-width:0;overflow-wrap:anywhere}
+.stmt.ok{background:#ecfdf5;color:#047857}.stmt.warn{background:#fffbeb;color:#b45309}.stmt.ai{background:#f5f3ff;color:#7c3aed}
+.stmt a{color:inherit;font-weight:600;white-space:nowrap}
+.sbtn{flex:none;display:inline-block;margin:0;border:1px solid var(--line);background:#fff;color:var(--navy);border-radius:8px;padding:7px 10px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.sbtn input{display:none}
+.photo.slim{padding:12px;margin-top:10px;font-size:15px;border-style:solid;border-width:1px}
+.total .nost{color:#fcd34d}
 .hidden{display:none!important}
 .center{text-align:center;color:var(--muted);padding:30px 0}
 .spin{width:28px;height:28px;border:3px solid #cbd5e1;border-top-color:var(--green);border-radius:50%;animation:s 0.8s linear infinite;margin:0 auto 10px}
@@ -139,6 +151,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);b
         <input type="file" id="files" accept="image/*,application/pdf" multiple>
       </label>
       <div class="hint" id="aiHint"></div>
+      <label class="photo slim" for="tripStmt">🏦 Виписка з банку за відрядження
+        <input type="file" id="tripStmt" accept="image/*,application/pdf" multiple>
+      </label>
+      <div class="hint">Платили особистою карткою? Додайте виписку до кожного чека (кнопка «📎 Виписка») або одну виписку за все відрядження — система сама знайде в ній оплати.</div>
     </div>
     <div id="expTotal" class="total hidden"></div>
     <div id="expList"></div>
@@ -388,26 +404,30 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);b
   };
 
   function prepare(file, c) {
-    if (/^image\//.test(file.type) && !/gif|svg/.test(file.type)) {
-      var url = URL.createObjectURL(file), img = new Image();
-      img.onload = function () {
-        var max = 2000, w = img.naturalWidth, hh = img.naturalHeight, k = Math.min(1, max / Math.max(w, hh));
-        var cv = document.createElement('canvas'); cv.width = Math.round(w * k); cv.height = Math.round(hh * k);
-        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-        var du = cv.toDataURL('image/jpeg', 0.85);
-        c.data = du.split(',')[1]; c.mime = 'image/jpeg'; c.preview = du; c.name = (c.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg';
-        URL.revokeObjectURL(url); enqueue(c);
-      };
-      img.onerror = function () { readRaw(file, c); };
-      img.src = url;
-    } else {
-      readRaw(file, c);
-    }
+    readFileData(file, function (x) {
+      c.data = x.data; c.mime = x.mime; c.name = x.name; if (x.preview) c.preview = x.preview;
+      enqueue(c);
+    });
   }
-  function readRaw(file, c) {
-    var r = new FileReader();
-    r.onload = function () { c.data = String(r.result).split(',')[1]; enqueue(c); };
-    r.readAsDataURL(file);
+  // Фото стискаємо до 2000 px (JPEG), PDF і решту передаємо як є
+  function readFileData(file, cb) {
+    var raw = function () {
+      var r = new FileReader();
+      r.onload = function () { cb({ data: String(r.result).split(',')[1], mime: file.type || 'application/octet-stream', name: file.name }); };
+      r.readAsDataURL(file);
+    };
+    if (!/^image\//.test(file.type) || /gif|svg/.test(file.type)) { raw(); return; }
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function () {
+      var max = 2000, w = img.naturalWidth, hh = img.naturalHeight, k = Math.min(1, max / Math.max(w, hh));
+      var cv = document.createElement('canvas'); cv.width = Math.round(w * k); cv.height = Math.round(hh * k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      var du = cv.toDataURL('image/jpeg', 0.85);
+      URL.revokeObjectURL(url);
+      cb({ data: du.split(',')[1], mime: 'image/jpeg', preview: du, name: (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg' });
+    };
+    img.onerror = raw;
+    img.src = url;
   }
 
   function enqueue(c) { c.msg = 'Очікує завантаження…'; queue.push(c); renderCard(c); next(); }
@@ -436,6 +456,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);b
       ['amount', 'currency', 'category', 'date', 'desc'].forEach(function (f) { if (force || (!c.edited[f] && !c.touched[f])) c.dto[f] = dto[f]; });
       if (force) c.edited = {};
       c.dto.source = dto.source;
+      if (!c.edited.pay || force) c.dto.pay = dto.pay;
+      c.dto.stmt = dto.stmt; c.dto.check = dto.check;
       if (!dto.found) { c.status = 'warn'; c.msg = 'Gemini не знайшов суму — впишіть вручну.'; }
       else if (dto.note) { c.status = 'warn'; c.msg = '✓ ' + dto.note; }
       else { c.status = 'ok'; c.msg = '✓ Розпізнано Gemini — перевірте суму'; }
@@ -467,7 +489,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);b
     Object.keys(c.touched).forEach(function (f) { payload[f] = c.dto[f]; });
     setStat(c, '', 'Зберігаю…');
     google.script.run.withSuccessHandler(function (dto) {
-      c.touched = {}; c.dto.source = dto ? dto.source : c.dto.source; c.status = 'ok'; setStat(c, 'ok', savedMsg(c.dto));
+      c.touched = {}; c.status = 'ok';
+      if (dto) { c.dto.source = dto.source; c.dto.stmt = dto.stmt; c.dto.check = dto.check; }
+      setStat(c, 'ok', savedMsg(c.dto)); renderPay(c);
     }).withFailureHandler(function (err) { setStat(c, 'err', 'Не збережено: ' + errText(err)); })
       .apiUpdateExpense(PIN, c.id, payload);
   }
@@ -477,12 +501,91 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);b
     var c = byKey(b.closest('.ecard').id.slice(2)); if (!c) return;
     if (b.classList.contains('retry')) { c.status = 'up'; enqueue(c); return; }
     if (b.classList.contains('reai')) { recognize(c, true); return; }
+    if (b.hasAttribute('data-pay')) {
+      var v = b.getAttribute('data-pay'); if (c.dto.pay === v) return;
+      c.dto.pay = v; c.touched.pay = true; c.edited.pay = true; renderPay(c); renderTotal();
+      if (c.id) save(c);
+      return;
+    }
     if (!b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = 'Видалити?'; setTimeout(function () { b.classList.remove('sure'); b.textContent = '×'; }, 3000); return; }
     c.removed = true;
     cards = cards.filter(function (x) { return x !== c; });
     renderCards();
     if (c.id) google.script.run.withFailureHandler(function (err) { show('Не вдалося видалити: ' + esc(errText(err)), 'err'); }).apiDeleteExpense(PIN, c.id);
   });
+
+  $('expList').addEventListener('change', function (ev) {
+    var inp = ev.target; if (!inp.classList || !inp.classList.contains('stmtFile') || !inp.files.length) return;
+    var c = byKey(inp.closest('.ecard').id.slice(2)), file = inp.files[0]; inp.value = '';
+    if (!c) return;
+    if (!c.id) { c.stmtBusy = null; c.dto.check = '⚠ Зачекайте, поки збережеться чек, і додайте виписку ще раз.'; renderPay(c); return; }
+    c.stmtBusy = 'Завантажую виписку…'; renderPay(c);
+    readFileData(file, function (x) {
+      google.script.run.withSuccessHandler(function (r) {
+        c.dto.stmt = r.url; c.dto.pay = 'Картка'; c.dto.check = r.gemini ? '' : 'перевірте вручну';
+        if (!r.gemini) { c.stmtBusy = null; renderPay(c); renderTotal(); return; }
+        c.stmtBusy = 'Звіряю виписку з чеком…'; renderPay(c);
+        google.script.run.withSuccessHandler(function (dto) {
+          c.stmtBusy = null; if (dto) { c.dto.check = dto.check; c.dto.stmt = dto.stmt; } renderPay(c); renderTotal();
+        }).withFailureHandler(function (err) {
+          c.stmtBusy = null; c.dto.check = '⚠ Виписку збережено, але не розпізнано: ' + errText(err); renderPay(c);
+        }).apiCheckStatement(PIN, c.id);
+      }).withFailureHandler(function (err) {
+        c.stmtBusy = null; c.dto.check = '⚠ Виписку не завантажено: ' + errText(err); renderPay(c);
+      }).apiAddStatement(PIN, { id: c.id, file: { name: x.name, mime: x.mime, data: x.data } });
+    });
+  });
+
+  // Виписка за все відрядження: скрипт сам шукає в ній оплати карткою
+  $('tripStmt').onchange = function () {
+    var tid = $('tripId').value, files = Array.prototype.slice.call(this.files); this.value = '';
+    if (!tid) { show('Спочатку оберіть відрядження.', 'err'); return; }
+    if (!files.length) return;
+    var tot = { matched: 0, missing: 0, ops: 0, manual: 0, err: '' }, i = 0;
+    busy(true, 'Звіряю виписку з чеками…');
+    (function one() {
+      if (i >= files.length) {
+        busy(false);
+        var m = tot.err ? 'Виписку збережено в папку, але не розпізнано: ' + esc(tot.err) + '. Бухгалтер перевірить вручну.'
+          : tot.manual ? 'Виписку збережено й прикріплено до оплат карткою — бухгалтер звірить вручну.'
+          : 'Виписку збережено. Операцій у виписці: <b>' + tot.ops + '</b>, знайдено оплат за чеками: <b>' + tot.matched + '</b>.' +
+            (tot.missing ? '<br>Не знайдено у виписці: <b>' + tot.missing + '</b> — перевірте суму в чеку або додайте іншу виписку.' : '');
+        show(m, tot.err || tot.missing ? 'warn' : 'ok');
+        loadExpenses();
+        return;
+      }
+      readFileData(files[i++], function (x) {
+        google.script.run.withSuccessHandler(function (r) {
+          tot.matched += r.matched || 0; tot.missing = r.missing || 0; tot.ops += r.operations || 0; tot.manual += r.manual || 0;
+          if (r.error) tot.err = r.error;
+          one();
+        }).withFailureHandler(function (err) {
+          busy(false); show('Виписку не завантажено: ' + esc(errText(err)), 'err');
+        }).apiAddTripStatement(PIN, { tripId: tid, file: { name: x.name, mime: x.mime, data: x.data } });
+      });
+    })();
+  };
+
+  function payHtml(c) {
+    var p = c.dto.pay || '', h = '<div class="pay"><div class="seg">' +
+      ['Готівка', 'Картка'].map(function (v) { return '<button type="button" data-pay="' + v + '"' + (p === v ? ' class="on"' : '') + '>' + (v === 'Картка' ? '💳 ' : '💵 ') + v + '</button>'; }).join('') + '</div>';
+    if (p !== 'Картка') return h + '</div>';
+    var ch = c.dto.check || '', cls, txt;
+    if (c.stmtBusy) { cls = 'ai'; txt = c.stmtBusy; }
+    else if (!c.dto.stmt) { cls = 'warn'; txt = ch.charAt(0) === '⚠' ? ch : 'Оплата карткою — додайте виписку з банку'; }
+    else if (ch.charAt(0) === '✓') { cls = 'ok'; txt = ch; }
+    else if (ch.charAt(0) === '⚠') { cls = 'warn'; txt = ch; }
+    else { cls = ''; txt = ch === 'перевірте вручну' ? 'Виписку додано — бухгалтер звірить вручну' : 'Виписку додано'; }
+    return h + '<div class="stmt ' + cls + '"><span class="tx">' + esc(txt) +
+      (c.dto.stmt && !c.stmtBusy ? ' <a href="' + esc(c.dto.stmt) + '" target="_blank">відкрити</a>' : '') + '</span>' +
+      (c.stmtBusy ? '' : '<label class="sbtn">📎 ' + (c.dto.stmt ? 'Інша' : 'Виписка') + '<input type="file" class="stmtFile" accept="image/*,application/pdf"></label>') +
+      '</div></div>';
+  }
+  function renderPay(c) {
+    var el = $('e-' + c.key); if (!el) return;
+    var p = el.querySelector('.pay'); if (p) p.outerHTML = payHtml(c);
+  }
+  function needsStmt(c) { return c.dto.pay === 'Картка' && (!c.dto.stmt || String(c.dto.check || '').charAt(0) === '⚠'); }
 
   function byKey(k) { for (var i = 0; i < cards.length; i++) if (cards[i].key === k) return cards[i]; return null; }
 
@@ -500,7 +603,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);b
       '<div><label>Валюта</label><select data-f="currency">' + curOpts + '</select></div></div>' +
       '<label>Категорія</label><select data-f="category">' + catOpts + '</select>' +
       '<div class="row"><div><label>Дата</label><input type="date" data-f="date" value="' + esc(c.dto.date) + '"></div>' +
-      '<div><label>Коментар</label><input data-f="desc" placeholder="напр. WOG" value="' + esc(c.dto.desc) + '"></div></div></div>';
+      '<div><label>Коментар</label><input data-f="desc" placeholder="напр. WOG" value="' + esc(c.dto.desc) + '"></div></div>' +
+      payHtml(c) + '</div>';
   }
   function renderCards() {
     var tid = $('tripId').value;
@@ -515,6 +619,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);b
         var f = inp.getAttribute('data-f'); if (f !== active && !c.touched[f]) inp.value = c.dto[f] == null ? '' : c.dto[f];
       });
       setStat(c, c.status, c.msg);
+      renderPay(c);
       return;
     }
     el.outerHTML = cardHtml(c);
@@ -525,15 +630,17 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);b
     var s = el.querySelector('.estat'); s.className = 'estat ' + (cls || ''); s.textContent = msg;
   }
   function renderTotal() {
-    var tid = $('tripId').value, sums = {}, n = 0;
+    var tid = $('tripId').value, sums = {}, n = 0, nost = 0;
     cards.forEach(function (c) {
       if (c.tripId !== tid) return; n++;
+      if (needsStmt(c)) nost++;
       var a = parseFloat(String(c.dto.amount).replace(',', '.')); if (isNaN(a)) return;
       sums[c.dto.currency || 'UAH'] = (sums[c.dto.currency || 'UAH'] || 0) + a;
     });
     var parts = Object.keys(sums).map(function (k) { return '<b>' + sums[k].toFixed(2) + ' ' + esc(k) + '</b>'; });
     $('expTotal').classList.toggle('hidden', !n);
-    $('expTotal').innerHTML = 'Чеків: <b>' + n + '</b>' + (parts.length ? ' · Разом: ' + parts.join(' + ') : '');
+    $('expTotal').innerHTML = 'Чеків: <b>' + n + '</b>' + (parts.length ? ' · Разом: ' + parts.join(' + ') : '') +
+      (nost ? '<br><span class="nost">💳 Без виписки: ' + nost + '</span>' : '');
   }
 
   load();
